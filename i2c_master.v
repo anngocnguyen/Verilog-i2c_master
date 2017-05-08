@@ -46,9 +46,9 @@ module i2c_master
                 s_rd = 8'h5,
                 s_slv_ack2 = 8'h6,
                 s_mst_ack = 8'h7,
-                s_end = 8'h8,
-                s_finish = 8'h9,
-                s_err = 8'hA;
+                s_end = 8'h9,
+                s_finish = 8'hA,
+                s_err = 8'hB;
     /* Variable Declaration */
     reg [7:0] data_rd_reg, data_rd_next;
     reg [7:0] data_wrt_reg, data_wrt_next;
@@ -136,7 +136,7 @@ module i2c_master
                         end
                         bit_count_next = 'd7;
                     end
-                    else begin /* Not ACK -> ERR */
+                    else begin /* NACK -> ERR */
                         state_next = s_err;
                     end
                 end
@@ -145,7 +145,7 @@ module i2c_master
                 sda_out = 1'b1; /* High Z to read input */
                 scl_out = tick_edge_reg;
                 if(clk_tick & tick_edge_reg) begin
-                    data_rd_next = {data_rd_reg[7:1], sda};
+                    data_rd_next = {data_rd_reg[6:0], sda};
                     if(bit_count_reg==0) begin /* Read Complete -> Master ACK */
                         state_next = s_mst_ack;
                     end
@@ -185,12 +185,17 @@ module i2c_master
 		    end
 		end
 	    end
-            s_mst_ack: begin
+            s_mst_ack: begin 
                 scl_out = tick_edge_reg;
-                sda_out = 1'b0;
-                busy = 1'b0;
+                busy = 1'b0; /* Read Data is available during one SCL cycle */
+                if((ena) && ({addr,rd_wrt} == addr_reg)) begin
+                    sda_out = 1'b0; /* ACK */
+                end
+                else begin 
+                    sda_out = 1'b1; /* NACK */
+                end
                 if(clk_tick & tick_edge_reg) begin
-                    if((ena) && ({addr,rd_wrt} == addr_reg)) begin /* -> Continue read from the same Address */
+                    if((ena)&&({addr, rd_wrt} == addr_reg)) begin /* -> Continue read from the same Address */
                         state_next = s_rd;
                         bit_count_next = 'd7;
                     end
@@ -207,7 +212,7 @@ module i2c_master
                     state_next = s_finish;
                 end
             end
-            s_finish: begin
+            s_finish: begin /* Release Bus one more SCL Clock Cycle */
                 busy = 1'b0;
                 scl_out = 1'b1;
                 sda_out = 1'b1;
